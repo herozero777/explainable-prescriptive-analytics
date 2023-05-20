@@ -3,6 +3,13 @@
 ### Install requirements 
 pip install -r req.txt
 
+### Test Code
+#### src/transition_system.py
+To test the transition system use the following command. Make sure to install pytest library. 
+
+    pytest src/transition_system.py
+
+
 ### Parameters
 Mandatory parameters: \
 --filename_completed --> log file containing all completed cases \

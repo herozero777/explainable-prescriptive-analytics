@@ -3,19 +3,96 @@ import numpy as np
 import os
 from datetime import datetime
 pd.options.display.max_columns= None
+from collections import Counter
 
 
-# TODO: Just create a function that returns a hashmap for next possible activity
-# TODO: a function that returns a pair of valid activity and resources
-def transition_system(df, case_id_name=None, activity_column_name="ACTIVITY", thrs=1.0,
-                      use_symbols=False):
+def indexs_for_window(current_index=0, window_size=2, end_exclusive=True):
     """
+    Designed to access a dataframe in a windowed fashion, meaning if you want to access last n elements from a given
+    index position. E.g you want to access previous 2 elements from any index. So for index values going like:
+    0, 1, 2, 3, 4 the function will return [0,1], [0,2], [0,3], [1,4], [2,5]
+    Args:
+        current_index: The index position in the dataframe.
+        window_size: Size of the window that is created by this function.
+        end_exclusive: Normally this is the case, example with list slicing in python. But sometimes like with pandas
+                      .loc the end_index can be inclusive as well. In that case set `False`.
+    Returns:
+        Tuple[int, int]
+    """
+    # === For test
+    # end_correction = 1 if end_exclusive else 0
+    # zero_correction = 1
+    # for current_index in range(0, 5):
+    #     print( max(current_index - window_size + zero_correction, 0), current_index + end_correction)
+    end_correction = 1 if end_exclusive else 0
+    zero_correction = 1
+    start_index = max(current_index - window_size + zero_correction, 0)
+    end_index = current_index + end_correction
+    return start_index, end_index
+
+
+class TestIndexForWindow:
+    def test_end_exclusive_true(self):
+        end_exclusive = True
+        # Test cases
+        # 0:1
+        # 0:2
+        # 0:3
+        # 1:4
+        # 2:5
+
+        start_index, end_index = indexs_for_window(current_index=0, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 1)
+        start_index, end_index = indexs_for_window(current_index=1, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 2)
+        start_index, end_index = indexs_for_window(current_index=2, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 3)
+        start_index, end_index = indexs_for_window(current_index=3, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (1, 4)
+        start_index, end_index = indexs_for_window(current_index=4, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (2, 5)
+
+    def test_end_exclusive_false(self):
+        end_exclusive = False
+        # Test cases
+        # 0:0
+        # 0:1
+        # 0:2
+        # 1:3
+        # 2:4
+
+        start_index, end_index = indexs_for_window(current_index=0, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 0)
+        start_index, end_index = indexs_for_window(current_index=1, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 1)
+        start_index, end_index = indexs_for_window(current_index=2, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (0, 2)
+        start_index, end_index = indexs_for_window(current_index=3, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (1, 3)
+        start_index, end_index = indexs_for_window(current_index=4, window_size=3, end_exclusive=end_exclusive)
+        assert (start_index, end_index) == (2, 4)
+
+def list_to_str(list_of_strings ):
+    """ Converts ['A', 'B', 'C'] -> 'A, B, C' """
+    return ", ".join(list_of_strings)
+
+
+def transition_system(df, case_id_name=None, activity_column_name="ACTIVITY", threshold_percentage=100,
+                      use_symbols=False, window_size=3):
+    """
+    Creates a transition graph from traces. The traces are broken into prefixes and for each prefix the next possible
+    activity is recorded. (ref: Explainable Process Prescriptive Analytics, Fig 1). E.g. prefix  <a> has [b, c, e] as
+    the next possible activities but prefix <a, b> has [c, d, f] as the next activities.
     Args:
         df (pd.DataFrame):
         case_id_name:
         activity_column_name:
-        thrs (float): Threshold value
+        threshold_percentage (float): Threshold value
         use_symbols (Bool): If all activities be mapped to symbols and those be used instead. `True` means yes do that.
+                            When True it doesn't use the `activity_column_name` variable so its value doesn't matter.
+        window_size (int): Max number of prefixes to keep in the transition system. E.g. For `window_size` = 3 if the
+                          prefix is <a, b, c, d>, the transition system will consider prefix <b, c, d> and add next
+                          possible activities to its list.
 
     Raises:
          AssertError: if unique activities are more than 26
@@ -43,47 +120,59 @@ def transition_system(df, case_id_name=None, activity_column_name="ACTIVITY", th
         symbol_list = [symbol_dict[value] for value in df[activity_column_name]]
         df["activity_symbols"] = symbol_list
 
-        # Create list for each symbol (activity) this list will represent possible next activities
-        for symbol in set(symbol_list):
-            transition_graph[symbol] = set()
-
         activity_col = "activity_symbols"
     else:
-
-        # Create list for each activity this list will represent possible next activities
-        for activity in unique_activities:
-            transition_graph[activity] = set()
-
         activity_col = activity_column_name
 
-    # === Create the transition System
-    z = 0
+    threshold = threshold_percentage / 100
     gdf = df.groupby(case_id_name)
+    activity_paths_count = {}
     # Iterate over each trace separately. Achieved by GROUPBY on case-ids.
     for case_id, group in gdf:
-        # print(group[ [activity_column_name, "activity_symbols"] ])
+        trace_path = list_to_str( group[activity_col].to_list() )
+        if activity_paths_count.get( trace_path ):
+            activity_paths_count[ trace_path ] += 1
+        else:
+            activity_paths_count[ trace_path ] = 1
 
-        prev_symbol = None
-        group_idx = 0
-        for _, row in group.iterrows():
-            # print(f"group i: {group_idx}")
-            if group_idx != 0:
-                if row[activity_col] not in transition_graph.get(prev_symbol):
-                    transition_graph.get(prev_symbol).add( row[activity_col] )
-            # # =================================================================
-            # # Creates a set of next valid (activity & resource). But it looks like validating
-            # # activity and resource separately is more efficient.
-            # if group_idx != 0:
-            #     if (row[activity_col], row[resource_column_name]) not in transition_graph.get(prev_symbol):
-            #         transition_graph.get(prev_symbol).add( (row[activity_col], row[resource_column_name]) )
-            # # =================================================================
-            prev_symbol = row[activity_col]
-            group_idx += 1
+    paths_and_their_counts = [ (k, v) for k, v in activity_paths_count.items() ]
+    sorted_paths_and_counts = sorted( paths_and_their_counts, key=lambda item: item[1], reverse=True )
+    sorted_paths = [path for path, count in sorted_paths_and_counts ]
+    amount_of_paths_to_select = int( len(sorted_paths) * threshold ) + 1
+    high_frequency_paths = sorted_paths[:amount_of_paths_to_select]
+
+    # === Create the transition System
+    activity_col_position = df.columns.get_loc(activity_col)
+    # For edge case: Where the first activity doesn't have a prefix, so create an empty prefix
+    transition_graph[""] = set()
+    # Iterate over each trace separately. Achieved by GROUPBY on case-ids.
+    for case_id, group in gdf:
+
+        previous_activity_str = ""
+        # Don't run for traces with low frequency paths
+        if list_to_str(group[activity_col]) not in high_frequency_paths:
+            continue
+
+        for idx, (_, row) in enumerate( group.iterrows() ):
+
+            start_index, end_index = indexs_for_window(idx, window_size=window_size, end_exclusive=True)
+            # print(start_index, end_index)
+            # print(group.iloc[start_index:end_index, activity_col_position])
+            activities_str = list_to_str(group.iloc[start_index:end_index, activity_col_position].to_list())
+            if activities_str not in transition_graph.keys():
+                transition_graph[activities_str] = set()
+
+            # if idx != 0:  # First activity is not added to any prefix
+            if row[activity_col] not in transition_graph[previous_activity_str]:
+                transition_graph[previous_activity_str].add( row[activity_col] )
+
+            previous_activity_str = activities_str
         #
         # z += 1
         # if z == 5:
         #     break
     return df, transition_graph
+
 
 if __name__ == '__main__':
     dataset = "completed.csv"  # bank_account_closure
@@ -124,3 +213,38 @@ if __name__ == '__main__':
     print("Test passed")
     assert not ('F', '1100870') in activity_resource_pair
     print("Test passed")
+
+    # # ============== Update Transition system ================= #
+    # activity_col = "activity_symbols"
+    # # Create a window of path for which the transition system has paths
+    # window_size = 2
+    # for idx, (_, row) in enumerate( gdf.iterrows() ):
+    #     start_index, end_index = indexs_for_window(idx, window_size=window_size)
+    #     print(start_index, end_index)
+    #     print( gdf.loc[ start_index:end_index , activity_col] )
+    #
+    # # 0:1
+    # # 0:2
+    # # 0:3
+    # # 1:4
+    # # 2:5
+    # threshold_percentage = 80
+    # threshold = threshold_percentage / 100
+    # gdf = df.groupby(case_id_name)
+    # ts = {}
+    # # Iterate over each trace separately. Achieved by GROUPBY on case-ids.
+    # for case_id, group in gdf:
+    #     trace_path = ", ".join( group[activity_col].to_list() )
+    #     if ts.get( trace_path ):
+    #         ts[ trace_path ] += 1
+    #     else:
+    #         ts[ trace_path ] = 1
+    #
+    # paths_and_their_counts = [ (k, v) for k, v in ts.items() ]
+    # sorted_paths_and_counts = sorted( paths_and_their_counts, key=lambda item: item[1], reverse=True )
+    # sorted_paths = [path for path, count in sorted_paths_and_counts ]
+    # amount_of_paths_to_select = int( len(sorted_paths) * threshold ) + 1
+    # truncated_paths = sorted_paths[:amount_of_paths_to_select]
+
+    df, transition_graph = transition_system(df, case_id_name, use_symbols=True)
+
