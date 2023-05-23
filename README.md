@@ -3,13 +3,6 @@
 ### Install requirements 
 pip install -r req.txt
 
-### Test Code
-#### src/transition_system.py
-To test the transition system use the following command. Make sure to install pytest library. 
-
-    pytest src/transition_system.py
-
-
 ### Parameters
 Mandatory parameters: \
 --filename_completed --> log file containing all completed cases \
@@ -34,6 +27,33 @@ python main_recsys.py --filename_completed 'data/VINST cases incidents.csv' --ca
 ### Recommendations and explanations for BAC case study on Activity "Pending Liquidation Request"
 python main_recsys.py --filename_completed data/completed.csv --case_id_name REQUEST_ID --activity_name ACTIVITY --start_date_name START_DATE --resource_name CE_UO --role_name ROLE --end_date_name END_DATE --pred_column independent_activity --predict_activities "Pending Liquidation Request" --experiment_name prova_activity_BAC_PLR --explain True
 
+## Notebooks
+### 00_preprocess_event_logs.ipynb
+This notebook preprocess the event-log data, so that machine learning can be applied to it. The notebook currently 
+preprocesses the data for 2 KPIs "Activity Occurrence" and "Total Time".
+
+
+### 02_DiCE_kpi-time.ipynb
+This notebook contains code that uses VINST dataset and tries to optimize the `lead_time` aka the total
+time it takes to complete a trace. DiCE algorithm is used for generating counterfactual explanations (CFEs)
+and then validation of the CFEs is done as postprocessing steps.
+
+## Test Code
+#### src/transition_system.py
+To test the transition system use the following command. Make sure to install pytest library. 
+
+    pytest src/transition_system.py
+
+
+---
+## Info About Datasets
+### VINST Dataset
+Columns
+- START_DATE - Start time of the activity. Format is Timestamp in milliseconds.
+- END_DATE - End time of the activity. Format is Timestamp in milliseconds.
+
+
 ## Contributors
 Riccardo Galanti
 Alessandro Padella
+Mohammad Ismail Tirmizi
