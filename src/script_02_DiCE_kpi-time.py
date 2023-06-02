@@ -8,6 +8,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 
 from src.transition_system import transition_system, indexs_for_window, list_to_str
+from src.function_store import StoreTestRun
 
 from datetime import datetime
 import pandas as pd
@@ -17,7 +18,10 @@ from time import time
 import random
 from math import ceil
 from wrapt_timeout_decorator import timeout
+import warnings
 
+# Suppress all warnings
+warnings.filterwarnings("ignore")
 
 ################################
 # Helper Functions
@@ -217,10 +221,10 @@ if __name__ == '__main__':
     REDUCED_KPI_TIME = 90
     TOTAL_CFS = 500                        # Number of CFs DiCE algorithm should produce
     TRAIN_DATA_SIZE = 31_066               # 31_066
-    DICE_METHOD = "random"
-    RESULTS_FILE_PATH_N_NAME = "experiment_results/random-02-total-time.csv"
-    proximity_weight = 1.0  # 0.2
-    sparsity_weight = 1.0  # 0.2
+    DICE_METHOD = "kdtree"
+    RESULTS_FILE_PATH_N_NAME = "experiment_results/kdtree-05-total_time.csv"
+    proximity_weight = 0.2  # 0.2
+    sparsity_weight = 0.2  # 0.2
     diversity_weight = 5.0  # 5.0
 
     parameter_configs = {"Window_size": WINDOW_SIZE, "Reducing Time by %": REDUCED_KPI_TIME, "Total CFS": TOTAL_CFS,
@@ -325,31 +329,38 @@ if __name__ == '__main__':
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
                                             window_size=WINDOW_SIZE)
 
+    state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
+    save_load_path = state_obj.get_save_load_path()
+
+    if os.path.exists(save_load_path):
+        state_obj.load_state()
+        cases_done = state_obj.run_state["cases_done"]
+    else:
+        cases_done = 0
+
     print("=================== Create CFEs for all the test cases ===================")
 
-    cfe_before_validation = []
-    cfe_after_validation = []
-    cfe_not_found = []
-    cases_includes_new_data = []
-    cases_too_small = []
-    i = 0
-    for df_test_trace in test_cases:
+    for df_test_trace in test_cases[cases_done:]:
 
         query_case_id = get_case_id(df_test_trace)
 
         if 0 < len(df_test_trace) <= 2:
-            print("too small", i, df_test_trace[case_id_name].unique().item())
-            cases_too_small.append( get_case_id(df_test_trace, multi=True) )
+            print("too small", cases_done, query_case_id)
+            result_value = query_case_id
+            state_obj.add_cfe_to_results(("cases_too_small", result_value))
+            cases_stored = state_obj.save_state()
+            cases_done += 1
             continue
 
         X_test, y_test = prepare_df_for_ml(df_test_trace, outcome_name)
         # Access the last row of the truncated trace to replicate the behavior of a running trace
-        total_time_upper_bound = int( y_test.iloc[-1] * (REDUCED_KPI_TIME / 100) )  # A percentage of the original total time of the trace
         query_instances = X_test.iloc[-1:]
+        total_time_upper_bound = int( y_test.iloc[-1] * (REDUCED_KPI_TIME / 100) )  # A percentage of the original total time of the trace
 
         try:
             cfe = generate_cfe( query_instances, total_time_upper_bound, total_cfs=TOTAL_CFS )
-            cfe_before_validation.append( (query_case_id, cfe) )
+            result_value = (query_case_id, cfe)
+            state_obj.add_cfe_to_results(("cfe_before_validation", result_value))  # save after cfe validation
 
             prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=WINDOW_SIZE,
                                                             activity_column_name=activity_column_name)
@@ -357,44 +368,46 @@ if __name__ == '__main__':
                                          valid_resources=valid_resources)
 
             if len(cfe_df) > 0:
-                cfe_after_validation.append( (query_case_id, cfe_df) )
+                result_value = (query_case_id, cfe_df)
+                state_obj.add_cfe_to_results(("cfe_after_validation", result_value))
+
+            cases_stored = state_obj.save_state()
 
         except UserConfigValidationException:
-            cfe_not_found.append( query_case_id )
+            result_value = query_case_id
+            state_obj.add_cfe_to_results(("cfe_not_found", result_value))
+            cases_stored = state_obj.save_state()
         except TimeoutError as err:  # When function takes too long
-            cfe_not_found.append( query_case_id )
-            print(f"TimeoutError Occurred: {err}")
+            result_value = query_case_id
+            print("TimeoutError caught:", err)
+            state_obj.add_cfe_to_results(("cfe_not_found", result_value))
+            cases_stored = state_obj.save_state()
         except ValueError:
             # print(f"Includes feature not found in training data: {get_case_id(df_test_trace)}")
-            cases_includes_new_data.append( query_case_id )
-        except AttributeError as err:
-            print(f"The AttributeError: {err}")
+            result_value = query_case_id
+            state_obj.add_cfe_to_results(("cases_includes_new_data", result_value))
+            cases_stored = state_obj.save_state()
+        # This error is seen occurring on when running lots of loops on the server
+        except AttributeError as e:
+            print("AttributeError caught:", e)
+            state_obj.add_cfe_to_results(("exceptions", query_case_id))
+            cases_stored = state_obj.save_state()
         except Exception as err:
-            print(f"Broadest Exception handler invoked {err}")
-
-        print(f"Done for idx: {i}, Case: {query_case_id}")
+            print(f"Broadest Exception handler invoked", err)
+            state_obj.add_cfe_to_results(("exceptions", query_case_id))
+            cases_stored = state_obj.save_state()
 
         # For printing results progressively
-        if (i % 400) == 0:
-            data = {"cfe_before_validation": [len(cfe_before_validation)],
-                    "cfe_after_validation": [len(cfe_after_validation)],
-                    "cfe_not_found": [len(cfe_not_found)],
-                    "cases_includes_new_data": [len(cases_includes_new_data)],
-                    "cases_too_small": [len(cases_too_small)]}
-            df_result = pd.DataFrame(data)
+        if (cases_done % 100) == 0:
+            df_result = state_obj.get_run_state_df()
             df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
 
-        i += 1
-        # if i == 20:
+        cases_done += 1
+        # if i >= 20:
         #     break
         # ----------------------------------------------------------------
 
-    data = {"cfe_before_validation": [len(cfe_before_validation)],
-            "cfe_after_validation": [len(cfe_after_validation)],
-            "cfe_not_found": [len(cfe_not_found)],
-            "cases_includes_new_data": [len(cases_includes_new_data)],
-            "cases_too_small": [len(cases_too_small)]}
-    df_result = pd.DataFrame(data)
+    df_result = state_obj.get_run_state_df()
     df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
 
     print(f"Time it took: { round( ((time() - start_time) / SECONDS_TO_HOURS), 3) }")

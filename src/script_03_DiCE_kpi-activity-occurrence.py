@@ -38,7 +38,7 @@ class StoreTestRun:
             "exceptions": [],
             "cases_done": 0
         }
-        save_load_dir = RESULTS_FILE_PATH_N_NAME.split(".")[0]
+        save_load_dir = save_load_path.split(".")[0]
         self.save_load_path = save_load_dir + ".pkl"
 
     def add_cfe_to_results(self, res_tuple = None):
@@ -399,7 +399,7 @@ if __name__ == '__main__':
 
     print("=================== Create CFEs for all the test cases ===================")
 
-    for df_test_trace in test_cases:
+    for df_test_trace in test_cases[cases_done:]:
 
         query_case_id = get_case_id(df_test_trace, case_id_name=case_id_name)
 
@@ -460,8 +460,6 @@ if __name__ == '__main__':
             print(f"Broadest Exception handler invoked", err)
             state_obj.add_cfe_to_results(("exceptions", query_case_id))
             cases_stored = state_obj.save_state()
-
-        # print(f"Done for idx: {cases_done}, Case: {query_case_id}")
 
         # For printing results progressively
         if (cases_done % 100) == 0:
