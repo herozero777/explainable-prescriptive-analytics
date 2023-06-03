@@ -8,7 +8,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 
 from src.transition_system import transition_system, indexs_for_window, list_to_str
-from src.function_store import StoreTestRun
+from src.function_store import StoreTestRun, extract_algo_name
 
 from datetime import datetime
 import pandas as pd
@@ -22,10 +22,11 @@ import warnings
 
 # Suppress all warnings
 warnings.filterwarnings("ignore")
-
 ################################
 # Helper Functions
 ################################
+SECONDS_TO_HOURS = 60 * 60
+SECONDS_TO_DAYS = 60 * 60 * 24
 
 
 def get_case_id(df, case_id_name="SR_Number", multi=False):
@@ -190,9 +191,11 @@ def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, v
 
 
 @timeout(120)  # Timeout unit seconds
-def generate_cfe(query_instances, total_time_upper_bound, total_cfs=50):
+def generate_cfe(explainer, query_instances, total_time_upper_bound, total_cfs=50, KPI="activity_occurrence",
+                 proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
     """
     Args:
+        explainer (dice_ml.Dice):
         query_instances (pd.DataFrame):
         total_time_upper_bound (int): The upper value of the target (y) label.
         total_cfs (int): Number of Counterfactual examples (CFEs) to produce via `generate_counterfactuals()`
@@ -200,7 +203,7 @@ def generate_cfe(query_instances, total_time_upper_bound, total_cfs=50):
     Returns:
         cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
     """
-    cfe = exp_genetic_iris.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_range=[0, total_time_upper_bound], features_to_vary=cols_to_vary,
+    cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_range=[0, total_time_upper_bound], features_to_vary=cols_to_vary,
                                                     proximity_weight=proximity_weight, sparsity_weight=sparsity_weight, diversity_weight=diversity_weight)
     return cfe
 
@@ -210,40 +213,70 @@ if __name__ == '__main__':
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
     # Get the path of the current script file
     script_path = os.path.dirname(os.path.abspath(__file__))
-
-    # Print the directory path
     print("Current Working Directory:", os.getcwd())
     print(script_path)
 
-    SECONDS_TO_HOURS = 60 * 60
-    SECONDS_TO_DAYS = 60 * 60 * 24
-    WINDOW_SIZE = 3
-    REDUCED_KPI_TIME = 90
-    TOTAL_CFS = 500                        # Number of CFs DiCE algorithm should produce
-    TRAIN_DATA_SIZE = 31_066               # 31_066
-    DICE_METHOD = "kdtree"
+    # ====== Variables to configure ======
+    # Use DiCE algo method as the first word of the .csv file.
     RESULTS_FILE_PATH_N_NAME = "experiment_results/kdtree-05-total_time.csv"
-    proximity_weight = 0.2  # 0.2
-    sparsity_weight = 0.2  # 0.2
-    diversity_weight = 5.0  # 5.0
+    configs = {"kpi": "total_time",                             # "activity_occurrence", "total_time"
+               "window_size": 3,
+               "reduced_kpi_time": 90,
+               "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
+               "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
+               "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
+               "train_dataset_size": 31_066,                                   # 31_066
+               "proximity_weight": 0.2,
+               "sparsity_weight": 0.2,
+               "diversity_weight": 5.0,
+               "program_run": 0}
 
-    parameter_configs = {"Window_size": WINDOW_SIZE, "Reducing Time by %": REDUCED_KPI_TIME, "Total CFS": TOTAL_CFS,
-                         "DiCE Algo Method": DICE_METHOD, "output_file_path": RESULTS_FILE_PATH_N_NAME,
-                         "Traning Dataset Size": TRAIN_DATA_SIZE,
-                         "proximity_weight": proximity_weight,
-                         "sparsity_weight": sparsity_weight,
-                         "diversity_weight": diversity_weight}
-    print("Configs:", parameter_configs)
+    state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
+    save_load_path = state_obj.get_save_load_path()
+
+    # ==== If saved progress exists, load it.
+    # TODO: Can use pass argument to the script to ensure that program first run is separate from other runs.
+    # TODO: Use an assert if first_run argument is passed.
+    # TODO: And if first run_flag is passed delete the logs file before running
+    if os.path.exists(save_load_path):
+        state_obj.load_state()
+        cases_done = state_obj.run_state["cases_done"]
+        configs = state_obj.get_model_configs()
+        configs['program_run'] += 1
+        print(f"Run: {configs['program_run']} of {configs['save_load_result_path'].split('/')[1] }")
+    else:
+        configs['program_run'] += 1
+        print(f"Run: {configs['program_run']} of {configs['save_load_result_path'].split('/')[1] }")
+        state_obj.add_model_configs(configs=configs)
+        cases_done = 0
+
+
+    # WINDOW_SIZE = 3
+    # REDUCED_KPI_TIME = 90
+    # TOTAL_CFS = 500
+    # TRAIN_DATA_SIZE = 31_066               # 31_066
+    # DICE_METHOD = "kdtree"
+    # proximity_weight = 0.2  # 0.2
+    # sparsity_weight = 0.2  # 0.2
+    # diversity_weight = 5.0  # 5.0
+    #
+    # parameter_configs = {"Window_size": WINDOW_SIZE, "Reducing Time by %": REDUCED_KPI_TIME, "Total CFS": TOTAL_CFS,
+    #                      "DiCE Algo Method": DICE_METHOD, "output_file_path": RESULTS_FILE_PATH_N_NAME,
+    #                      "Traning Dataset Size": TRAIN_DATA_SIZE,
+    #                      "proximity_weight": proximity_weight,
+    #                      "sparsity_weight": sparsity_weight,
+    #                      "diversity_weight": diversity_weight}
+    print("Configs:", configs)
 
     case_id_name = 'SR_Number'  # The case identifier column name.
     start_date_name = 'Change_Date+Time'  # Maybe change to start_et (start even time)
     activity_column_name = "ACTIVITY"
 
-    data_dir = "preprocessed_datasets/"
+    data_dir = "./preprocessed_datasets/"
     train_dataset_file = "train-set-cfe.csv"
     # test_dataset_file = "test-set-cfe.csv"
     test_pickle_dataset_file = "test-set-cfe.pkl"
-    df = pd.read_csv("data/VINST cases incidents.csv")  # Use full dataset for transition systens
+    df = pd.read_csv("./data/VINST cases incidents.csv")  # Use full dataset for transition systens
     df_train = pd.read_csv(os.path.join(data_dir, train_dataset_file))
     # df_test = pd.read_csv(os.path.join(data_dir, test_dataset_file))
 
@@ -251,7 +284,7 @@ if __name__ == '__main__':
     df = df.fillna("missing")
 
     # # Temporary
-    df_train = df_train[:TRAIN_DATA_SIZE]
+    df_train = df_train[:configs["train_dataset_size"]]
     ## ---------
 
     resource_columns_to_validate = [activity_column_name, 'Involved_ST_Function_Div', 'Involved_Org_line_3',
@@ -313,30 +346,18 @@ if __name__ == '__main__':
     model = clf.fit(X_train, y_train)
 
     print("=================== Create DiCE model ===================")
-    d_iris = dice_ml.Data(dataframe=pd.concat([X_train, y_train], axis="columns"),
+    data_model = dice_ml.Data(dataframe=pd.concat([X_train, y_train], axis="columns"),
                           continuous_features=continuous_features,
                           outcome_name=outcome_name)
 
     # We provide the type of model as a parameter (model_type)
-    m_iris = dice_ml.Model(model=model, backend="sklearn", model_type='regressor')
-    method = DICE_METHOD  # genetic, kdtree, random
-    # Method random does not support features_weights argument in generate_counterfactuals()
-    exp_genetic_iris = Dice(d_iris, m_iris, method=method)
-    # exp_genetic_iris = Dice(d_iris, m_iris, method="kdtree")
-
+    ml_backend = dice_ml.Model(model=model, backend="sklearn", model_type='regressor')
+    method = configs["dice_method"]
+    explainer = Dice(data_model, ml_backend, method=method)
 
     # === Load the Transition Graph
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
-                                            window_size=WINDOW_SIZE)
-
-    state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
-    save_load_path = state_obj.get_save_load_path()
-
-    if os.path.exists(save_load_path):
-        state_obj.load_state()
-        cases_done = state_obj.run_state["cases_done"]
-    else:
-        cases_done = 0
+                                            window_size=configs["window_size"])
 
     print("=================== Create CFEs for all the test cases ===================")
 
@@ -355,14 +376,16 @@ if __name__ == '__main__':
         X_test, y_test = prepare_df_for_ml(df_test_trace, outcome_name)
         # Access the last row of the truncated trace to replicate the behavior of a running trace
         query_instances = X_test.iloc[-1:]
-        total_time_upper_bound = int( y_test.iloc[-1] * (REDUCED_KPI_TIME / 100) )  # A percentage of the original total time of the trace
+        total_time_upper_bound = int( y_test.iloc[-1] * ( configs["reduced_kpi_time"] / 100) )  # A percentage of the original total time of the trace
 
         try:
-            cfe = generate_cfe( query_instances, total_time_upper_bound, total_cfs=TOTAL_CFS )
+            cfe = generate_cfe(explainer, query_instances, total_time_upper_bound, total_cfs=configs["total_cfs"],
+                               KPI="activity_occurrence", proximity_weight=configs["proximity_weight"],
+                               sparsity_weight=configs["sparsity_weight"], diversity_weight=configs["diversity_weight"])
             result_value = (query_case_id, cfe)
             state_obj.add_cfe_to_results(("cfe_before_validation", result_value))  # save after cfe validation
 
-            prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=WINDOW_SIZE,
+            prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=configs["window_size"],
                                                             activity_column_name=activity_column_name)
             cfe_df = validate_transition(cfe, prefix_of_activities=prefix_of_activities, transition_graph=transition_graph,
                                          valid_resources=valid_resources)
@@ -400,7 +423,7 @@ if __name__ == '__main__':
         # For printing results progressively
         if (cases_done % 100) == 0:
             df_result = state_obj.get_run_state_df()
-            df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
+            df_result.to_csv(configs["save_load_result_path"], index=False)
 
         cases_done += 1
         # if i >= 20:
@@ -408,7 +431,7 @@ if __name__ == '__main__':
         # ----------------------------------------------------------------
 
     df_result = state_obj.get_run_state_df()
-    df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
+    df_result.to_csv(configs["save_load_result_path"], index=False)
 
     print(f"Time it took: { round( ((time() - start_time) / SECONDS_TO_HOURS), 3) }")
     print("======================================== Testing Complete !!! =============================================")

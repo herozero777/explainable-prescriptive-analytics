@@ -1,7 +1,12 @@
 # Prescriptive-Analytics
 
 ### Install requirements 
+Works on Python (3.9 & 3.10). Make sure you have folder `experiment_results` for running the notebooks and the scripts 
+in `src` directory.
+```bash
 pip install -r req.txt
+pip install -r requirements.txt
+```
 
 ### Parameters
 Mandatory parameters: \
@@ -28,10 +33,12 @@ python main_recsys.py --filename_completed 'data/VINST cases incidents.csv' --ca
 python main_recsys.py --filename_completed data/completed.csv --case_id_name REQUEST_ID --activity_name ACTIVITY --start_date_name START_DATE --resource_name CE_UO --role_name ROLE --end_date_name END_DATE --pred_column independent_activity --predict_activities "Pending Liquidation Request" --experiment_name prova_activity_BAC_PLR --explain True
 
 ## Notebooks
+Run the `jupyter` server in the directory: `explainable-prescriptive-analytics` the project directory, it shouldn't be 
+running in the `src` directory.
+
 ### 00_preprocess_event_logs.ipynb
 This notebook preprocess the event-log data, so that machine learning can be applied to it. The notebook currently 
 preprocesses the data for 2 KPIs "Activity Occurrence" and "Total Time".
-
 
 ### 02_DiCE_kpi-time.ipynb
 This notebook contains code that uses VINST dataset and tries to optimize the `lead_time` aka the total

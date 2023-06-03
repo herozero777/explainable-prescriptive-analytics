@@ -8,6 +8,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 
 from src.transition_system import transition_system, indexs_for_window, list_to_str
+from src.function_store import StoreTestRun, extract_algo_name
 
 from datetime import datetime
 import pandas as pd
@@ -24,55 +25,8 @@ warnings.filterwarnings("ignore")
 ################################
 # Helper Functions
 ################################
-
-
-class StoreTestRun:
-    def __init__(self, save_load_path= None ):
-        self.run_state = {
-            "cfe_before_validation": [],
-            "cfe_after_validation": [],
-            "cfe_not_found": [],
-            "cases_includes_new_data": [],
-            "cases_too_small": [],
-            "cases_zero_in_y": [],
-            "exceptions": [],
-            "cases_done": 0
-        }
-        save_load_dir = save_load_path.split(".")[0]
-        self.save_load_path = save_load_dir + ".pkl"
-
-    def add_cfe_to_results(self, res_tuple = None):
-        # E.g. ("cfe_not_found", cfe) = res_tuple
-        dict_key, result_value = res_tuple
-        self.run_state[dict_key].append( result_value )
-
-    def save_state(self):
-        with open( self.save_load_path, 'wb' ) as file:
-            self.run_state["cases_done"] += 1  # Represents a single case completion
-            print(f"====== Start Saving the result ======")
-            pickle.dump(self.run_state, file)
-        print(f"====== End Saving the result For case: {self.run_state['cases_done']} ======")
-        return self.run_state["cases_done"]
-
-    def load_state(self):
-        with open( self.save_load_path, 'rb' ) as file:
-            self.run_state = pickle.load(file)
-
-    def get_save_load_path(self):
-        return self.save_load_path
-
-    def get_run_state_df(self):
-        data = {"cfe_before_validation": [ len( self.run_state['cfe_before_validation'] ) ],
-                "cfe_after_validation": [ len(self.run_state["cfe_after_validation"]) ],
-                "cfe_not_found": [ len(self.run_state["cfe_not_found"]) ],
-                "cases_includes_new_data": [ len(self.run_state["cases_includes_new_data"])],
-                "cases_too_small": [ len(self.run_state["cases_too_small"]) ],
-                "cases_zero_in_y": [ len(self.run_state["cases_zero_in_y"]) ],
-                "exceptions": [ len(self.run_state["exceptions"]) ],
-                "cases_done": [ self.run_state["cases_done"] ]
-        }
-        df_result = pd.DataFrame(data)
-        return df_result
+SECONDS_TO_HOURS = 60 * 60
+SECONDS_TO_DAYS = 60 * 60 * 24
 
 
 def get_case_id(df, case_id_name="SR_Number"):  # , multi=False
@@ -237,18 +191,20 @@ def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, v
 
 
 @timeout(120)  # Timeout unit seconds
-def generate_cfe(query_instances, total_time_upper_bound=None, total_cfs=50, KPI="activity_occurrence"):
+def generate_cfe(explainer, query_instances, total_time_upper_bound=None, total_cfs=50, KPI="activity_occurrence",
+                 proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
     """
     Args:
+        explainer (dice_ml.Dice):
         query_instances (pd.DataFrame):
-        total_time_upper_bound (int): The upper value of the target (y) label.
+        total_time_upper_bound (int, None): The upper value of the target (y) label.
         total_cfs (int): Number of Counterfactual examples (CFEs) to produce via `generate_counterfactuals()`
 
     Returns:
         cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
     """
     if KPI == "activity_occurrence":
-        cfe = exp_genetic_iris.generate_counterfactuals(query_instances, total_CFs=15, desired_class="opposite", features_to_vary=cols_to_vary,
+        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=15, desired_class="opposite", features_to_vary=cols_to_vary,
                                                         permitted_range = {"ACTIVITY": ['Service closure Request with network responsibility',
                                                                                 'Service closure Request with BO responsibility',
                                                                                 'Pending Request for Reservation Closure', 'Pending Liquidation Request',
@@ -256,7 +212,7 @@ def generate_cfe(query_instances, total_time_upper_bound=None, total_cfs=50, KPI
                                                                                 'Network Adjustment Requested', 'Evaluating Request (WITH registered letter)',
                                                                                 'Pending Request for Network Information']})  # 'Back-Office Adjustment Requested'
     else:
-        cfe = exp_genetic_iris.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_range=[0, total_time_upper_bound], features_to_vary=cols_to_vary,
+        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_range=[0, total_time_upper_bound], features_to_vary=cols_to_vary,
                                                     proximity_weight=proximity_weight, sparsity_weight=sparsity_weight, diversity_weight=diversity_weight)
     return cfe
 
@@ -266,34 +222,65 @@ if __name__ == '__main__':
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
     # Get the path of the current script file
     script_path = os.path.dirname(os.path.abspath(__file__))
-
-    # Print the directory path
     print("Current Working Directory:", os.getcwd())
     print(script_path)
 
-    KPI = "activity_occurrence"
-    SECONDS_TO_HOURS = 60 * 60
-    SECONDS_TO_DAYS = 60 * 60 * 24
-    WINDOW_SIZE = 3
-    TOTAL_CFS = 500                        # Number of CFs DiCE algorithm should produce
-    TRAIN_DATA_SIZE = 170_335              # 170_335
-    DICE_METHOD = "genetic"
-    RESULTS_FILE_PATH_N_NAME = "experiment_results/genetic-01-activity-occu.csv"
-    proximity_weight = 0.2  # 0.2
-    sparsity_weight = 0.2  # 0.2
-    diversity_weight = 5.0  # 5.0
+    # ====== Variables to configure ======
+    # Use DiCE algo method as the first word of the .csv file.
+    RESULTS_FILE_PATH_N_NAME = "experiment_results/random-a01-activity_occurrence.csv"
+    configs = {"kpi": "activity_occurrence",
+               "window_size": 3,
+               # "reduced_kpi_time": 90,                                      # Not used in script_03
+               "total_cfs": 500,                                  # Number of CFs DiCE algorithm should produce
+               "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
+               "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
+               "train_dataset_size": 170_335,                                   # 170_335
+               "proximity_weight": 0.2,
+               "sparsity_weight": 0.2,
+               "diversity_weight": 5.0,
+               "program_run": 0}
 
-    parameter_configs = {"Window_size": WINDOW_SIZE, "Total CFS": TOTAL_CFS,
-                         "DiCE Algo Method": DICE_METHOD, "output_file_path": RESULTS_FILE_PATH_N_NAME,
-                         "Traning Dataset Size": TRAIN_DATA_SIZE,
-                         "proximity_weight": proximity_weight,
-                         "sparsity_weight": sparsity_weight,
-                         "diversity_weight": diversity_weight}
-    print("Configs:", parameter_configs)
+    state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
+    save_load_path = state_obj.get_save_load_path()
+
+    # ==== If saved progress exists, load it.
+    # TODO: Can use pass argument to the script to ensure that program first run is separate from other runs.
+    # TODO: Use an assert if first_run argument is passed.
+    # TODO: And if first run_flag is passed delete the logs file before running
+    if os.path.exists(save_load_path):
+        state_obj.load_state()
+        cases_done = state_obj.run_state["cases_done"]
+        configs = state_obj.get_model_configs()
+        configs['program_run'] += 1
+        print(f"Run: {configs['program_run']} of {configs['save_load_result_path'].split('/')[1] }")
+    else:
+        configs['program_run'] += 1
+        print(f"Run: {configs['program_run']} of {configs['save_load_result_path'].split('/')[1] }")
+        state_obj.add_model_configs(configs=configs)
+        cases_done = 0
+
+
+    # KPI = "activity_occurrence"
+
+    # WINDOW_SIZE = 3
+    # TOTAL_CFS = 500                        # Number of CFs DiCE algorithm should produce
+    # TRAIN_DATA_SIZE = 170_335              # 170_335
+    # DICE_METHOD = "genetic"
+    # RESULTS_FILE_PATH_N_NAME = "experiment_results/genetic-01-activity-occu.csv"
+    # proximity_weight = 0.2  # 0.2
+    # sparsity_weight = 0.2  # 0.2
+    # diversity_weight = 5.0  # 5.0
+    #
+    # parameter_configs = {"Window_size": WINDOW_SIZE, "Total CFS": TOTAL_CFS,
+    #                      "DiCE Algo Method": DICE_METHOD, "output_file_path": RESULTS_FILE_PATH_N_NAME,
+    #                      "Traning Dataset Size": TRAIN_DATA_SIZE,
+    #                      "proximity_weight": proximity_weight,
+    #                      "sparsity_weight": sparsity_weight,
+    #                      "diversity_weight": diversity_weight}
+    print("Configs:", configs)
 
     case_id_name = 'REQUEST_ID'  # The case identifier column name.
     activity_column_name = "ACTIVITY"
-
 
     data_dir = "./preprocessed_datasets/"
     train_dataset_file = "bank_acc_train.csv"
@@ -307,7 +294,7 @@ if __name__ == '__main__':
     df = df.fillna("missing")
 
     # # Temporary
-    df_train = df_train[:TRAIN_DATA_SIZE]
+    df_train = df_train[:configs["train_dataset_size"]]
     ## ---------
 
     resource_columns_to_validate = [activity_column_name, 'CE_UO', 'ROLE']
@@ -374,28 +361,18 @@ if __name__ == '__main__':
 
     print("=================== Create DiCE model ===================")
     # ## Create DiCE model
-    d_iris = dice_ml.Data(dataframe=pd.concat([X_train, y_train], axis="columns"),
+    data_model = dice_ml.Data(dataframe=pd.concat([X_train, y_train], axis="columns"),
                           continuous_features=continuous_features,
                           outcome_name=outcome_name)
 
     # We provide the type of model as a parameter (model_type)
-    m_iris = dice_ml.Model(model=model, backend="sklearn", model_type='classifier')
-    method = DICE_METHOD  # genetic, kdtree, random
-    # Categorical features do not support features_weights argument in generate_counterfactuals()
-    exp_genetic_iris = Dice(d_iris, m_iris, method=method)
-
+    ml_backend = dice_ml.Model(model=model, backend="sklearn", model_type='classifier')
+    method = configs["dice_method"]
+    explainer = Dice(data_model, ml_backend, method=method)
+    print(f"Dice explainer type: {explainer}")               # temp
     # === Load the Transition Graph
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
-                                            window_size=WINDOW_SIZE)
-
-    state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
-    save_load_path = state_obj.get_save_load_path()
-
-    if os.path.exists(save_load_path):
-        state_obj.load_state()
-        cases_done = state_obj.run_state["cases_done"]
-    else:
-        cases_done = 0
+                                            window_size=configs["window_size"])
 
     print("=================== Create CFEs for all the test cases ===================")
 
@@ -424,11 +401,14 @@ if __name__ == '__main__':
         # Access the last row of the truncated trace to replicate the behavior of a running trace
         query_instances = X_test.iloc[-1:]
         try:
-            cfe = generate_cfe(query_instances, total_cfs=TOTAL_CFS, KPI="activity_occurrence")
+            cfe = generate_cfe(explainer, query_instances, total_time_upper_bound=None, total_cfs=configs["total_cfs"],
+                               KPI=configs["kpi"], proximity_weight=configs["proximity_weight"],
+                               sparsity_weight=configs["sparsity_weight"], diversity_weight=configs["diversity_weight"])
             result_value = (query_case_id, cfe)
             state_obj.add_cfe_to_results(("cfe_before_validation", result_value))  # save after cfe validation
 
-            prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=0, activity_column_name=activity_column_name)
+            prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=configs["window_size"],
+                                                            activity_column_name=activity_column_name)
             cfe_df = validate_transition(cfe, prefix_of_activities=prefix_of_activities, transition_graph=transition_graph, valid_resources=valid_resources)
 
             if len(cfe_df) > 0:
@@ -464,7 +444,7 @@ if __name__ == '__main__':
         # For printing results progressively
         if (cases_done % 100) == 0:
             df_result = state_obj.get_run_state_df()
-            df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
+            df_result.to_csv(configs["save_load_result_path"] , index=False)
 
         cases_done += 1
         # if i >= 20:
@@ -472,7 +452,7 @@ if __name__ == '__main__':
         # ----------------------------------------------------------------
 
     df_result = state_obj.get_run_state_df()
-    df_result.to_csv(RESULTS_FILE_PATH_N_NAME, index=False)
+    df_result.to_csv(configs["save_load_result_path"], index=False)
 
     print(f"Time it took: { round( ((time() - start_time) / SECONDS_TO_HOURS), 3) }")
     print("======================================== Testing Complete !!! =============================================")
