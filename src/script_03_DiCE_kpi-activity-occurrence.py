@@ -8,16 +8,15 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 
 from src.transition_system import transition_system, indexs_for_window, list_to_str
-from src.function_store import StoreTestRun, extract_algo_name
+from src.function_store import StoreTestRun, extract_algo_name, generate_cfe, get_case_id, prepare_df_for_ml, \
+    activity_n_resources, get_test_cases, get_prefix_of_activities, validate_transition
 
 from datetime import datetime
-import pandas as pd
-import pickle
-import os
 from time import time
+import argparse
+import os
+import pandas as pd
 import random
-from math import ceil
-from wrapt_timeout_decorator import timeout
 import warnings
 
 # Suppress all warnings
@@ -29,205 +28,30 @@ SECONDS_TO_HOURS = 60 * 60
 SECONDS_TO_DAYS = 60 * 60 * 24
 
 
-def get_case_id(df, case_id_name="SR_Number"):  # , multi=False
-    return df[case_id_name].unique().item()
-
-
-def get_query_instance(sidx=14, eidx=16):
-    assert eidx - sidx == 2, "One row represents the current action and the next one represents the suggested action"
-    current_step = X_train[sidx: sidx+1]
-    expected_next_step = X_train[eidx-1: eidx]
-    return current_step, expected_next_step
-
-
-def activity_n_resources(df, resources_columns=None, threshold_percentage=100):
-    """
-    Creates a set of tuples, each tuple has elements from the columns specified through `resource_columns`.
-    E.g. { ('action_1', 'rresource_1'), ... (activity_3, resource_5) }
-    Args:
-        df (pd.DataFrame):
-        resources_columns (list): columns that contains the activity and resources.
-    Returns:
-        Set of tuples. A single element contains the activity and resources of a single row from the
-        dataframe.
-    """
-    if resources_columns is None:
-        # raise TypeError("Please specify the columns that have resources")
-        resources_columns = [activity_column_name, 'Involved_ST_Function_Div', 'Involved_Org_line_3',
-                             'Involved_ST', 'Country', 'Owner_Country']
-
-    threshold = threshold_percentage / 100
-
-    valid_activity_n_resource = set( df[resources_columns].apply(tuple, axis='columns') )
-
-    # combo: combination
-    resource_combo_frequency = {}
-
-    valid_resource_combo = df[resources_columns].apply(tuple, axis='columns')
-
-    for elem in valid_resource_combo:
-        if resource_combo_frequency.get(elem):
-            resource_combo_frequency[elem] += 1
-        else:
-            resource_combo_frequency[elem] = 1
-    # Creates a list of (combo, counts)
-    resource_combo_counts = [ (k, v) for k, v in resource_combo_frequency.items() ]
-    sorted_resource_combo_counts = sorted( resource_combo_counts, key=lambda item: item[1], reverse=True )
-    sorted_combos = [combo for combo, _ in sorted_resource_combo_counts ]
-    amount_of_combos_to_select = int( len(sorted_combos) * threshold ) + 1
-    valid_activity_n_resources = sorted_combos[:amount_of_combos_to_select]
-    return valid_activity_n_resources
-
-
-def get_test(df, case_id_name):
-    # df_result = pd.DataFrame(columns=df.columns)
-    result_lst = []
-
-    for idx in df[case_id_name].unique():
-        df_trace = df[df[case_id_name] == idx]
-        # ceil enables cases with 1 row to pass through
-        cut = ceil(len(df_trace) * random.uniform(0.5, 0.7)) #+ 2  # 2 because one for the floor and one for the pred
-        df_trace = df_trace.iloc[:cut].reset_index(drop=True)
-
-        # df_result = pd.concat([df_result, df_trace])
-        result_lst.append(df_trace.reset_index(drop=True))
-        # break
-    # return df_result.reset_index(drop=True)
-    return result_lst
-
-
-def get_prefix_of_activities(expected_activity_index=None, event_log=None, df_single_trace=None, window_size=3, activity_column_name=None):
-    """ Retrieves the prefix of activities from the event log. So that later the next activity can be validated using the prefix.
-    This function can be used for 2 different cases. 1st, passing different arguments allowing is to single out trace prefix
-    from the entire event log (df_train). 2nd, passing it df_single_trace and prefix is extracted from it.
-    Args:
-        expected_activity_index (int)
-        event_log (pd.DataFrame): Dataframe containing many traces. E.g. df_train
-        df_single_trace (pd.DataFrame): A dataframe that contains a single trace. E.g. a running trace or a test trace. It is expected
-            that the index of this dataframe starts from 0. An assumption is that last activity/ row represents the expected activity,
-            so the prefix of activities ends at the 2nd last activity. when using this parameter, query_case_id and related parameters
-            are ignored.
-
-    """
-    # Error checking
-    if activity_column_name is None:
-        raise "Please specify activity_column_name"
-
-    if df_single_trace is not None:  # Case 1
-        # Check if indexes start from 0
-        assert df_single_trace.loc[0] is not None
-
-        # Due to assumption that last activity is the expected activity so the prefix ends at the 2nd last activity
-        index_to_previous_activity = df_single_trace.index[-2]
-
-        start_index, end_index = indexs_for_window(index_to_previous_activity, window_size=window_size, end_exclusive=False)
-        prefix_of_activities = df_single_trace.loc[start_index: end_index, activity_column_name].to_list()  # loc is used to access the index values inside the dataframe
-        prefix_of_activities = list_to_str(prefix_of_activities)
-
-        return prefix_of_activities
-    else:  # Case 2
-        # if query_case_id is None:
-        #     raise "Please specify query_case_id!"
-        if event_log is None:
-            raise "Please specify event_log!"
-        if expected_activity_index is None:
-            raise "Please specify expected_activity_index!"
-
-        query_case_id = get_case_id( event_log[expected_activity_index: expected_activity_index+1], case_id_name=case_id_name )
-
-        # Isolate the query_case_id trace
-        df_query = event_log[ event_log[case_id_name] == query_case_id ]
-
-        # Prefix ends before the expected activity timestamp
-        index_to_previous_activity = expected_activity_index - 1
-
-        start_index, end_index = indexs_for_window(index_to_previous_activity, window_size=window_size, end_exclusive=False)
-        prefix_of_activities = df_query.loc[start_index: end_index, activity_column_name].to_list()  # loc is used to access the index values inside the dataframe
-        prefix_of_activities = list_to_str(prefix_of_activities)
-
-        return prefix_of_activities
-
-
-def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, valid_resources=None):
-    """  resource_columns_to_validate=None possible future parameter
-    Args:
-        cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
-        window_size (int): Size of the prefix of trace for which next activity is checked. See `index_for_window` function
-                            documentation.
-        expected_activity_index (int):
-    Returns:
-        pd.DataFrame
-    """
-    if cfe is None:
-        raise "Please specify cfe!"
-    if valid_resources is None:
-        raise "Please specify valid_resources!"
-    if transition_graph is None:
-        raise "Please specify transition_graph"
-    if prefix_of_activities is None:
-        raise "Please specify prefix_of_activities"
-
-    cf_examples_df = cfe.cf_examples_list[0].final_cfs_df.copy()  # Get the counterfactual explanations dataframe from the object
-
-    # === Verify the next activity
-    indexes_to_drop = []
-    for i, suggested_next_activity in cf_examples_df[activity_column_name].items():
-        if suggested_next_activity not in transition_graph[prefix_of_activities]:
-            indexes_to_drop.append(i)
-            # print(i, suggested_next_activity)
-
-    cf_examples_df = cf_examples_df.drop(indexes_to_drop, axis='index').reset_index(drop=True)
-
-    # === Verify the associated resources
-    indexes_to_drop = []
-    for i, row in cf_examples_df[ resource_columns_to_validate ].iterrows():
-        row_tuple = tuple(row)
-        if row_tuple not in valid_resources:
-            # print(f"removed row had: {row_tuple}")
-            indexes_to_drop.append(i)
-
-    cf_examples_df = cf_examples_df.drop(indexes_to_drop, axis='index').reset_index(drop=True)
-    return cf_examples_df
-
-
-@timeout(120)  # Timeout unit seconds
-def generate_cfe(explainer, query_instances, total_time_upper_bound=None, total_cfs=50, KPI="activity_occurrence",
-                 proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
-    """
-    Args:
-        explainer (dice_ml.Dice):
-        query_instances (pd.DataFrame):
-        total_time_upper_bound (int, None): The upper value of the target (y) label.
-        total_cfs (int): Number of Counterfactual examples (CFEs) to produce via `generate_counterfactuals()`
-
-    Returns:
-        cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
-    """
-    if KPI == "activity_occurrence":
-        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=15, desired_class="opposite", features_to_vary=cols_to_vary,
-                                                        permitted_range = {"ACTIVITY": ['Service closure Request with network responsibility',
-                                                                                'Service closure Request with BO responsibility',
-                                                                                'Pending Request for Reservation Closure', 'Pending Liquidation Request',
-                                                                                'Request created','Authorization Requested', 'Evaluating Request (NO registered letter)',
-                                                                                'Network Adjustment Requested', 'Evaluating Request (WITH registered letter)',
-                                                                                'Pending Request for Network Information']})  # 'Back-Office Adjustment Requested'
-    else:
-        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_range=[0, total_time_upper_bound], features_to_vary=cols_to_vary,
-                                                    proximity_weight=proximity_weight, sparsity_weight=sparsity_weight, diversity_weight=diversity_weight)
-    return cfe
-
-
 if __name__ == '__main__':
     start_time = time()
+
+    ################################
+    # Parse command line arguments
+    ################################
+    parser = argparse.ArgumentParser(description='Script for Testing DiCE algorithm. The script runs the algorithm with'
+                                                 'desired configuration on a test dataset.')
+    parser.add_argument('--first_run', default=False, help="Use this flag if this is the first time running the script.")
+    args = parser.parse_args()
+
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
     # Get the path of the current script file
     script_path = os.path.dirname(os.path.abspath(__file__))
     print("Current Working Directory:", os.getcwd())
     print(script_path)
-
+    current_file_name = os.path.basename(__file__)
+    print("File name:", current_file_name)
     # ====== Variables to configure ======
-    # Use DiCE algo method as the first word of the .csv file.
-    RESULTS_FILE_PATH_N_NAME = "experiment_results/random-a01-activity_occurrence.csv"
+    # Uses DiCE algo method as the first word of the .csv file.
+    # Just for running these many experiments. Going to duplicate this as template. Each experiment run will have its
+    # own script copy. This creates many duplicate files, but its allows to spot the experiment name in the `htop` tool.
+    # RESULTS_FILE_PATH_N_NAME = "experiment_results/random-a01-activity_occurrence.csv"  # Default template name
+    RESULTS_FILE_PATH_N_NAME = f"experiment_results/{current_file_name.split('.')[0]}.csv"
     configs = {"kpi": "activity_occurrence",
                "window_size": 3,
                # "reduced_kpi_time": 90,                                      # Not used in script_03
@@ -243,10 +67,11 @@ if __name__ == '__main__':
     state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
     save_load_path = state_obj.get_save_load_path()
 
+    if os.path.exists(save_load_path) and args.first_run:
+        raise FileExistsError(f"This is program's first run yet the pickle file: {save_load_path} exists. Please remove"
+                              f"it to run it with the flag --first_run")
+
     # ==== If saved progress exists, load it.
-    # TODO: Can use pass argument to the script to ensure that program first run is separate from other runs.
-    # TODO: Use an assert if first_run argument is passed.
-    # TODO: And if first run_flag is passed delete the logs file before running
     if os.path.exists(save_load_path):
         state_obj.load_state()
         cases_done = state_obj.run_state["cases_done"]
@@ -259,24 +84,6 @@ if __name__ == '__main__':
         state_obj.add_model_configs(configs=configs)
         cases_done = 0
 
-
-    # KPI = "activity_occurrence"
-
-    # WINDOW_SIZE = 3
-    # TOTAL_CFS = 500                        # Number of CFs DiCE algorithm should produce
-    # TRAIN_DATA_SIZE = 170_335              # 170_335
-    # DICE_METHOD = "genetic"
-    # RESULTS_FILE_PATH_N_NAME = "experiment_results/genetic-01-activity-occu.csv"
-    # proximity_weight = 0.2  # 0.2
-    # sparsity_weight = 0.2  # 0.2
-    # diversity_weight = 5.0  # 5.0
-    #
-    # parameter_configs = {"Window_size": WINDOW_SIZE, "Total CFS": TOTAL_CFS,
-    #                      "DiCE Algo Method": DICE_METHOD, "output_file_path": RESULTS_FILE_PATH_N_NAME,
-    #                      "Traning Dataset Size": TRAIN_DATA_SIZE,
-    #                      "proximity_weight": proximity_weight,
-    #                      "sparsity_weight": sparsity_weight,
-    #                      "diversity_weight": diversity_weight}
     print("Configs:", configs)
 
     case_id_name = 'REQUEST_ID'  # The case identifier column name.
@@ -301,29 +108,14 @@ if __name__ == '__main__':
     valid_resources = activity_n_resources(df, resource_columns_to_validate)
     # len(valid_resources)
 
-    # test_cases = get_test(df_test, case_id_name)
     # Unpickle the Standard test-set. To standardize the test across different parameters.
-    with open(os.path.join(data_dir, test_pickle_dataset_file), 'rb') as file:
-        test_cases = pickle.load(file)
+    test_cases = get_test_cases(None, None, load_dataset=True, path_and_filename=os.path.join(data_dir, test_pickle_dataset_file))
 
     cols_to_vary = ["ACTIVITY", "CE_UO", "ROLE"]
 
     outcome_name = "Back-Office Adjustment Requested"
 
-    def prepare_df_for_ml(df, outcome_name, columns_to_remove=None) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        :param str outcome_name: name of the target column.
-        """
-        # Before training for ml we need to remove columns that can are not needed for ML model.
-        if columns_to_remove is None:
-            columns_to_remove = ["Change_Date+Time", "time_remaining"]
-        df = df.drop([case_id_name], axis="columns")
-        df = df.drop(columns_to_remove, axis="columns")
-        X = df.drop([outcome_name], axis=1)
-        y = df[outcome_name]
-        return X, y
-
-    X_train, y_train = prepare_df_for_ml(df_train, outcome_name, columns_to_remove=["START_DATE", "END_DATE", "time_remaining"])
+    X_train, y_train = prepare_df_for_ml(df_train, case_id_name, outcome_name, columns_to_remove=["START_DATE", "END_DATE", "time_remaining"])
 
     continuous_features = ["time_from_first", "time_from_previous_et", "time_from_midnight", "activity_duration",
                            '# ACTIVITY=Service closure Request with network responsibility',
@@ -388,7 +180,7 @@ if __name__ == '__main__':
             cases_done += 1
             continue
 
-        X_test, y_test = prepare_df_for_ml(df_test_trace, outcome_name, columns_to_remove=["START_DATE", "END_DATE", "time_remaining"])
+        X_test, y_test = prepare_df_for_ml(df_test_trace, case_id_name, outcome_name, columns_to_remove=["START_DATE", "END_DATE", "time_remaining"])
 
         # Check if y_test is 0 then don't generate CFE
         if y_test.iloc[-1] == 0:
@@ -401,15 +193,16 @@ if __name__ == '__main__':
         # Access the last row of the truncated trace to replicate the behavior of a running trace
         query_instances = X_test.iloc[-1:]
         try:
-            cfe = generate_cfe(explainer, query_instances, total_time_upper_bound=None, total_cfs=configs["total_cfs"],
-                               KPI=configs["kpi"], proximity_weight=configs["proximity_weight"],
+            cfe = generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=cols_to_vary,
+                               total_cfs=configs["total_cfs"], KPI=configs["kpi"], proximity_weight=configs["proximity_weight"],
                                sparsity_weight=configs["sparsity_weight"], diversity_weight=configs["diversity_weight"])
             result_value = (query_case_id, cfe)
             state_obj.add_cfe_to_results(("cfe_before_validation", result_value))  # save after cfe validation
 
             prefix_of_activities = get_prefix_of_activities(df_single_trace=df_test_trace, window_size=configs["window_size"],
                                                             activity_column_name=activity_column_name)
-            cfe_df = validate_transition(cfe, prefix_of_activities=prefix_of_activities, transition_graph=transition_graph, valid_resources=valid_resources)
+            cfe_df = validate_transition(cfe, prefix_of_activities=prefix_of_activities, transition_graph=transition_graph, valid_resources=valid_resources,
+                                         activity_column_name=activity_column_name, resource_columns_to_validate=resource_columns_to_validate)
 
             if len(cfe_df) > 0:
                 result_value = (query_case_id, cfe_df)
@@ -436,10 +229,10 @@ if __name__ == '__main__':
             print("AttributeError caught:", e)
             state_obj.add_cfe_to_results(("exceptions", query_case_id))
             cases_stored = state_obj.save_state()
-        except Exception as err:
-            print(f"Broadest Exception handler invoked", err)
-            state_obj.add_cfe_to_results(("exceptions", query_case_id))
-            cases_stored = state_obj.save_state()
+        # except Exception as err:
+        #     print(f"Broadest Exception handler invoked", err)
+        #     state_obj.add_cfe_to_results(("exceptions", query_case_id))
+        #     cases_stored = state_obj.save_state()
 
         # For printing results progressively
         if (cases_done % 100) == 0:
