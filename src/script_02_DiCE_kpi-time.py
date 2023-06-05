@@ -35,7 +35,7 @@ if __name__ == '__main__':
     ################################
     parser = argparse.ArgumentParser(description='Script for Testing DiCE algorithm. The script runs the algorithm with'
                                                  'desired configuration on a test dataset.')
-    parser.add_argument('--first_run', default=False, help="Use this flag if this is the first time running the script.")
+    parser.add_argument('--first_run', action='store_true', help="Use this flag if this is the first time running the script.")
     args = parser.parse_args()
 
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
@@ -45,6 +45,7 @@ if __name__ == '__main__':
     print(script_path)
     current_file_name = os.path.basename(__file__)
     print("File name:", current_file_name)
+
     # ====== Variables to configure ======
     # Uses DiCE algo method as the first word of the .csv file.
     # Just for running these many experiments. Going to duplicate this as template. Each experiment run will have its
@@ -66,7 +67,7 @@ if __name__ == '__main__':
     state_obj = StoreTestRun(save_load_path=RESULTS_FILE_PATH_N_NAME)
     save_load_path = state_obj.get_save_load_path()
 
-    if os.path.exists(save_load_path) and args.first_run:
+    if os.path.exists(save_load_path) and args.first_run:  # TODO: This check is not thorought enough, improve it.
         raise FileExistsError(f"This is program's first run yet the pickle file: {save_load_path} exists. Please remove"
                               f"it to run it with the flag --first_run")
 

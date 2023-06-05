@@ -36,7 +36,7 @@ if __name__ == '__main__':
     ################################
     parser = argparse.ArgumentParser(description='Script for Testing DiCE algorithm. The script runs the algorithm with'
                                                  'desired configuration on a test dataset.')
-    parser.add_argument('--first_run', default=False, help="Use this flag if this is the first time running the script.")
+    parser.add_argument('--first_run', action='store_true', help="Use this flag if this is the first time running the script.")
     args = parser.parse_args()
 
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
@@ -46,6 +46,7 @@ if __name__ == '__main__':
     print(script_path)
     current_file_name = os.path.basename(__file__)
     print("File name:", current_file_name)
+
     # ====== Variables to configure ======
     # Uses DiCE algo method as the first word of the .csv file.
     # Just for running these many experiments. Going to duplicate this as template. Each experiment run will have its
@@ -161,7 +162,7 @@ if __name__ == '__main__':
     ml_backend = dice_ml.Model(model=model, backend="sklearn", model_type='classifier')
     method = configs["dice_method"]
     explainer = Dice(data_model, ml_backend, method=method)
-    print(f"Dice explainer type: {explainer}")               # temp
+
     # === Load the Transition Graph
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
                                             window_size=configs["window_size"])
