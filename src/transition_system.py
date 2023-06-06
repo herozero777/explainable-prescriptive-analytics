@@ -87,7 +87,8 @@ def transition_system(df, case_id_name=None, activity_column_name="ACTIVITY", th
         df (pd.DataFrame):
         case_id_name:
         activity_column_name:
-        threshold_percentage (float): Threshold value
+        threshold_percentage (int): The code sorts the prefixes according to its frequency It puts them in a list,
+                            `threshold_percentage` tells what fraction of that list to keep.
         use_symbols (Bool): If all activities be mapped to symbols and those be used instead. `True` means yes do that.
                             When True it doesn't use the `activity_column_name` variable so its value doesn't matter.
         window_size (int): Max number of prefixes to keep in the transition system. E.g. For `window_size` = 3 if the

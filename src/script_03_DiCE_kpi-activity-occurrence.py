@@ -195,7 +195,7 @@ if __name__ == '__main__':
         query_instances = X_test.iloc[-1:]
         try:
             cfe = generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=cols_to_vary,
-                               total_cfs=configs["total_cfs"], KPI=configs["kpi"], proximity_weight=configs["proximity_weight"],
+                               total_cfs=configs["total_cfs"], kpi=configs["kpi"], proximity_weight=configs["proximity_weight"],
                                sparsity_weight=configs["sparsity_weight"], diversity_weight=configs["diversity_weight"])
             result_value = (query_case_id, cfe)
             state_obj.add_cfe_to_results(("cfe_before_validation", result_value))  # save after cfe validation

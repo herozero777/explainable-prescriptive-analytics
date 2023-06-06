@@ -122,8 +122,44 @@ class Test_extract_algo_name:
     # `pytest src/function_store.py `
 
 
-def get_case_id(df, case_id_name="SR_Number"):  # , multi=False
+def get_case_id(df, case_id_name="SR_Number") -> Union[str, int]:  # , multi=False
     return df[case_id_name].unique().item()
+
+def variable_type_analysis(X_train, case_id_name, activity_name):
+    """ Can be added to class: EventLog (in file 00_preprocess notebook).
+    Args:
+        X_train:
+        case_id_name:
+        activity_name:
+
+    Returns:
+            Tuple[List[int], List[str], List[float]]: The explanation of the lists is as:
+            1st list: quantitative_attributes. Names of columns with numeric values.
+            2nd List: case_attributes. Names of columns whose
+                      value remains same for a single trace. Basically 1 value per trace.
+            3rd List: event_attributes. Names of columns with string type.
+    """
+    quantitative_attributes = list()
+    case_attributes = list()
+    event_attributes = list()
+
+    for col in X_train.columns:  # for col in tqdm.tqdm(X_train.columns):
+
+        if (col not in [case_id_name, activity_name]) and (col[0] != '#'):
+            if type(X_train[col][0]) != str:
+                quantitative_attributes.append(col)
+            else:
+                trace = True
+                for idx in X_train[case_id_name].unique():  # 150 has been set to be big enough
+                    df = X_train[X_train[case_id_name] == idx]
+                    if len(set(df[col].unique())) != 1:
+                        trace = False
+                if trace:
+                    case_attributes.append(col)
+                else:
+                    event_attributes.append(col)
+
+    return quantitative_attributes, case_attributes, event_attributes
 
 def prepare_df_for_ml(df, case_id_name, outcome_name, columns_to_remove=None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -178,6 +214,8 @@ def activity_n_resources(df, resources_columns=None, threshold_percentage=100):
     Args:
         df (pd.DataFrame):
         resources_columns (list): columns that contains the activity and resources.
+        threshold_percentage (int): The code sorts the activity and resources combination according to their frequencies
+                                It puts them in a list, `threshold_percentage` tells what fraction of that list to keep.
     Returns:
         Set of tuples. A single element contains the activity and resources of a single row from the
         dataframe.
@@ -304,7 +342,7 @@ def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, v
 
 
 @timeout(120)  # Timeout unit seconds
-def generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=None, total_cfs=50, KPI="",
+def generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=None, total_cfs=50, kpi="",
                  proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
     """
     Args:
