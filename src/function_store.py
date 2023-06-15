@@ -341,22 +341,30 @@ def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, v
     return cf_examples_df
 
 
-@timeout(120)  # Timeout unit seconds
+@timeout(300)  # Timeout unit seconds
 def generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=None, total_cfs=50, kpi="",
                  proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
-    """
+    """ For ref: http://interpret.ml/DiCE/dice_ml.explainer_interfaces.html#dice_ml.explainer_interfaces.explainer_base.ExplainerBase.generate_counterfactuals
     Args:
         explainer (dice_ml.Dice):
         query_instances (pd.DataFrame):
         total_time_upper_bound (int, None): The upper value of the target (y) label.
         total_cfs (int): Number of Counterfactual examples (CFEs) to produce via `generate_counterfactuals()`
-
+        proximity_weight (float): A positive float. Larger this weight, more close the counterfactuals are to the
+                query_instance. Used by [‘genetic’, ‘gradientdescent’], ignored by [‘random’, ‘kdtree’] methods.
+        sparsity_weight (float): A positive float. Larger this weight, fewer features are changed from the
+                query_instance. Used by [‘genetic’, ‘kdtree’], ignored by [‘random’, ‘gradientdescent’] methods.
+        diversity_weight (float): A positive float. Larger this weight, more diverse the counterfactuals are. Used by
+                [‘genetic’, ‘gradientdescent’], ignored by [‘random’, ‘kdtree’] methods.
     Returns:
         cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
     """
-    if KPI == "activity_occurrence":
-        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_class="opposite", features_to_vary=features_to_vary,
-                                                        permitted_range = {"ACTIVITY": ['Service closure Request with network responsibility',
+    if kpi == "activity_occurrence":
+        # Usually .generate_counterfactuals use desired_class="opposite" but we use 0 because we need to always want the
+        # target attribute (label column) to be 0, meaning the bad activity will not occur.
+        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_class=0,
+                                                 features_to_vary=features_to_vary,
+                                                 permitted_range = {"ACTIVITY": ['Service closure Request with network responsibility',
                                                                                 'Service closure Request with BO responsibility',
                                                                                 'Pending Request for Reservation Closure', 'Pending Liquidation Request',
                                                                                 'Request created','Authorization Requested', 'Evaluating Request (NO registered letter)',
@@ -366,7 +374,7 @@ def generate_cfe(explainer, query_instances, total_time_upper_bound=None, featur
         cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs,
                                                  desired_range=[0, total_time_upper_bound],
                                                  features_to_vary=features_to_vary,
-                                                    proximity_weight=proximity_weight, sparsity_weight=sparsity_weight,
+                                                 proximity_weight=proximity_weight, sparsity_weight=sparsity_weight,
                                                  diversity_weight=diversity_weight)
     return cfe
 

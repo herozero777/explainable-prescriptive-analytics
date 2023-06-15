@@ -168,11 +168,11 @@ if __name__ == '__main__':
                                             window_size=configs["window_size"])
 
     print("=================== Create CFEs for all the test cases ===================")
-
-    for df_test_trace in test_cases[cases_done:]:
-
+    start_from_case = state_obj.run_state["cases_done"]
+    for df_test_trace in test_cases[start_from_case:]:
+        test_trace_start = time()
         query_case_id = get_case_id(df_test_trace, case_id_name=case_id_name)
-
+        print("--- Start Loop ---,", query_case_id)
         if 0 < len(df_test_trace) <= 2:
             print("too small", cases_done, df_test_trace[case_id_name].unique().item())
             result_value = query_case_id
@@ -238,8 +238,9 @@ if __name__ == '__main__':
         # For printing results progressively
         if (cases_done % 100) == 0:
             df_result = state_obj.get_run_state_df()
-            df_result.to_csv(configs["save_load_result_path"] , index=False)
+            df_result.to_csv(configs["save_load_result_path"], index=False)
 
+        print(f"Time it took: {round(((time() - test_trace_start) / 60), 3)}")
         cases_done += 1
         # if i >= 20:
         #     break
