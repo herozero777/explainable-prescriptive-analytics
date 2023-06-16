@@ -75,18 +75,18 @@ class StoreTestRun:
         self.run_state[dict_key].append(result_value)
 
     def save_state(self):
-        with open(self.save_load_state_path, 'wb') as file:
+        with open(self.save_load_state_path, 'wb') as file_handle:
             self.run_state["cases_done"] += 1  # Represents a single case completion
             dictionary_store = { "run_state": self.run_state,
                                  "configs": self.configs}
             print(f"====== Start Saving the result ======")
-            pickle.dump(dictionary_store, file)
+            pickle.dump(dictionary_store, file_handle)
         print(f"====== End Saving the result For case: {self.run_state['cases_done']} ======")
         return self.run_state["cases_done"]
 
     def load_state(self):
-        with open(self.save_load_state_path, 'rb') as file:
-            dictionary_store = pickle.load(file)
+        with open(self.save_load_state_path, 'rb') as file_handle:
+            dictionary_store = pickle.load(file_handle)
             self.run_state = dictionary_store["run_state"]
             self.configs = dictionary_store["configs"]
 

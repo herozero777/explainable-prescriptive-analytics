@@ -36,6 +36,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Script for Testing DiCE algorithm. The script runs the algorithm with'
                                                  'desired configuration on a test dataset.')
     parser.add_argument('--first_run', action='store_true', help="Use this flag if this is the first time running the script.")
+    # TODO: add a flag to denote "use file name as the method name mode"
     args = parser.parse_args()
 
     print(f"========================= Program Start at: {datetime.fromtimestamp(start_time)} =========================")
@@ -58,7 +59,7 @@ if __name__ == '__main__':
                "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
                "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
                "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
-               "train_dataset_size": 31_066,                                   # 31_066
+               "train_dataset_size": 39_111,                                   # 39_111
                "proximity_weight": 0.2,
                "sparsity_weight": 0.2,
                "diversity_weight": 5.0,
@@ -91,9 +92,9 @@ if __name__ == '__main__':
     activity_column_name = "ACTIVITY"
 
     data_dir = "./preprocessed_datasets/"
-    train_dataset_file = "train-set-cfe.csv"
-    # test_dataset_file = "test-set-cfe.csv"
-    test_pickle_dataset_file = "test-set-cfe.pkl"
+    train_dataset_file = "vinst_train.csv"
+    # test_dataset_file = "vinst_test.csv"
+    test_pickle_dataset_file = "vinst_test.pkl"
     df = pd.read_csv("./data/VINST cases incidents.csv")  # Use full dataset for transition systens
     df_train = pd.read_csv(os.path.join(data_dir, train_dataset_file))
     # df_test = pd.read_csv(os.path.join(data_dir, test_dataset_file))
@@ -104,11 +105,6 @@ if __name__ == '__main__':
     # # Temporary
     df_train = df_train[:configs["train_dataset_size"]]
     ## ---------
-
-    resource_columns_to_validate = [activity_column_name, 'Involved_ST_Function_Div', 'Involved_Org_line_3',
-                                    'Involved_ST', 'Country', 'Owner_Country']
-    valid_resources = activity_n_resources(df, resource_columns_to_validate)
-    # len(valid_resources)
 
     # Unpickle the Standard test-set. To standardize the test across different parameters.
     test_cases = get_test_cases(None, None, load_dataset=True, path_and_filename=os.path.join(data_dir, test_pickle_dataset_file))
@@ -157,9 +153,14 @@ if __name__ == '__main__':
     method = configs["dice_method"]
     explainer = Dice(data_model, ml_backend, method=method)
 
+    # === Load activity and resource compatibility thingy
+    resource_columns_to_validate = [activity_column_name, 'Involved_ST_Function_Div', 'Involved_Org_line_3',
+                                    'Involved_ST', 'Country', 'Owner_Country']
+    valid_resources = activity_n_resources(df, resource_columns_to_validate, threshold_percentage=100)
+
     # === Load the Transition Graph
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
-                                            window_size=configs["window_size"])
+                                            window_size=configs["window_size"], threshold_percentage=100)
 
     print("=================== Create CFEs for all the test cases ===================")
     start_from_case = state_obj.run_state["cases_done"]
@@ -167,13 +168,13 @@ if __name__ == '__main__':
         test_trace_start = time()
         query_case_id = get_case_id(df_test_trace)
         print("--- Start Loop ---,", query_case_id)
-        if 0 < len(df_test_trace) <= 2:
-            print("too small", cases_done, query_case_id)
-            result_value = query_case_id
-            state_obj.add_cfe_to_results(("cases_too_small", result_value))
-            cases_stored = state_obj.save_state()
-            cases_done += 1
-            continue
+        # if 0 < len(df_test_trace) <= 2:
+        #     print("too small", cases_done, query_case_id)
+        #     result_value = query_case_id
+        #     state_obj.add_cfe_to_results(("cases_too_small", result_value))
+        #     cases_stored = state_obj.save_state()
+        #     cases_done += 1
+        #     continue
 
         X_test, y_test = prepare_df_for_ml(df_test_trace, case_id_name, outcome_name, columns_to_remove=["Change_Date+Time", "time_remaining"])
         # Access the last row of the truncated trace to replicate the behavior of a running trace
