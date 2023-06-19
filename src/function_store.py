@@ -190,7 +190,7 @@ def get_test_cases(df, case_id_name, load_dataset=False, path_and_filename=None)
         for idx in df[case_id_name].unique():
             df_trace = df[df[case_id_name] == idx]
             # ceil enables cases with 1 row to pass through
-            cut = ceil(len(df_trace) * random.uniform(0.5, 0.7)) #+ 2  # 2 because one for the floor and one for the pred
+            cut = ceil(len(df_trace) * random.uniform(0.5, 0.7))  #+ 2  # 2 because one for the floor and one for the pred
             df_trace = df_trace.iloc[:cut].reset_index(drop=True)
 
             # df_result = pd.concat([df_result, df_trace])

@@ -56,10 +56,10 @@ if __name__ == '__main__':
     configs = {"kpi": "activity_occurrence",
                "window_size": 3,
                # "reduced_kpi_time": 90,                                      # Not used in script_03
-               "total_cfs": 500,                                  # Number of CFs DiCE algorithm should produce
+               "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
                "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
                "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
-               "train_dataset_size": 170_335,                                   # 170_335
+               "train_dataset_size": 171_034,                                   # 171_034
                "proximity_weight": 0.2,
                "sparsity_weight": 0.2,
                "diversity_weight": 5.0,
@@ -93,7 +93,7 @@ if __name__ == '__main__':
     data_dir = "./preprocessed_datasets/"
     train_dataset_file = "bank_acc_train.csv"
     # test_dataset_file = "bank_acc_test.csv"
-    test_pickle_dataset_file = "bank_acc-test.pkl"
+    test_pickle_dataset_file = "bank_acc_test.pkl"
     df = pd.read_csv("./data/completed.csv")  # Use full dataset for transition systens
     df_train = pd.read_csv(os.path.join(data_dir, train_dataset_file))
     # df_test = pd.read_csv(os.path.join(data_dir, test_dataset_file))
@@ -104,10 +104,6 @@ if __name__ == '__main__':
     # # Temporary
     df_train = df_train[:configs["train_dataset_size"]]
     ## ---------
-
-    resource_columns_to_validate = [activity_column_name, 'CE_UO', 'ROLE']
-    valid_resources = activity_n_resources(df, resource_columns_to_validate)
-    # len(valid_resources)
 
     # Unpickle the Standard test-set. To standardize the test across different parameters.
     test_cases = get_test_cases(None, None, load_dataset=True, path_and_filename=os.path.join(data_dir, test_pickle_dataset_file))
@@ -163,9 +159,12 @@ if __name__ == '__main__':
     method = configs["dice_method"]
     explainer = Dice(data_model, ml_backend, method=method)
 
+    resource_columns_to_validate = [activity_column_name, 'CE_UO', 'ROLE']
+    valid_resources = activity_n_resources(df, resource_columns_to_validate, threshold_percentage=100)
+
     # === Load the Transition Graph
     _, transition_graph = transition_system(df, case_id_name=case_id_name, activity_column_name=activity_column_name,
-                                            window_size=configs["window_size"])
+                                            window_size=configs["window_size"], threshold_percentage=100)
 
     print("=================== Create CFEs for all the test cases ===================")
     start_from_case = state_obj.run_state["cases_done"]
@@ -173,23 +172,23 @@ if __name__ == '__main__':
         test_trace_start = time()
         query_case_id = get_case_id(df_test_trace, case_id_name=case_id_name)
         print("--- Start Loop ---,", query_case_id)
-        if 0 < len(df_test_trace) <= 2:
-            print("too small", cases_done, df_test_trace[case_id_name].unique().item())
-            result_value = query_case_id
-            state_obj.add_cfe_to_results(("cases_too_small", result_value))
-            cases_stored = state_obj.save_state()
-            cases_done += 1
-            continue
+        # if 0 < len(df_test_trace) <= 2:
+        #     print("too small", cases_done, df_test_trace[case_id_name].unique().item())
+        #     result_value = query_case_id
+        #     state_obj.add_cfe_to_results(("cases_too_small", result_value))
+        #     cases_stored = state_obj.save_state()
+        #     cases_done += 1
+        #     continue
 
         X_test, y_test = prepare_df_for_ml(df_test_trace, case_id_name, outcome_name, columns_to_remove=["START_DATE", "END_DATE", "time_remaining"])
 
-        # Check if y_test is 0 then don't generate CFE
-        if y_test.iloc[-1] == 0:
-            result_value = query_case_id
-            state_obj.add_cfe_to_results(("cases_zero_in_y", result_value))
-            cases_stored = state_obj.save_state()
-            cases_done += 1
-            continue
+        # # Check if y_test is 0 then don't generate CFE
+        # if y_test.iloc[-1] == 0:
+        #     result_value = query_case_id
+        #     state_obj.add_cfe_to_results(("cases_zero_in_y", result_value))
+        #     cases_stored = state_obj.save_state()
+        #     cases_done += 1
+        #     continue
 
         # Access the last row of the truncated trace to replicate the behavior of a running trace
         query_instances = X_test.iloc[-1:]

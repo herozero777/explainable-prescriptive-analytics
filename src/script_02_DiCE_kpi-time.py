@@ -59,7 +59,7 @@ if __name__ == '__main__':
                "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
                "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
                "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
-               "train_dataset_size": 39_111,                                   # 39_111
+               "train_dataset_size": 39_375,                                   # 39_375
                "proximity_weight": 0.2,
                "sparsity_weight": 0.2,
                "diversity_weight": 5.0,
