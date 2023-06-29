@@ -28,6 +28,13 @@ import utils
 from time import sleep
 
 
+class SamplingStrategy:
+    Random = 'random'
+    Genetic = 'genetic'
+    KdTree = 'kdtree'
+    Gradient = 'gradient'
+
+
 class StoreTestRun:
     def __init__(self, save_load_path=None):
         """
@@ -125,6 +132,24 @@ class Test_extract_algo_name:
 def get_case_id(df, case_id_name="SR_Number") -> Union[str, int]:  # , multi=False
     return df[case_id_name].unique().item()
 
+def cases_with_activity_to_avoid(df, case_id_name, activity_column_name, activity_to_avoid):
+    """
+    Returns:
+        case_ids_with_activity_to_avoid, case_ids_without_activity_to_avoid
+    """
+    # === How much traces have `activity_to_avoid` ===========================
+    case_ids_with_activity_to_avoid = []
+    case_ids_without_activity_to_avoid = []
+    gdf = df.groupby(case_id_name)
+    for case_id, group in gdf:
+        if activity_to_avoid in group[activity_column_name].to_list():
+            case_ids_with_activity_to_avoid.append(case_id)
+        else:
+            case_ids_without_activity_to_avoid.append(case_id)
+    # print(f"Cases with activity_to_avoid: {len(case_ids_with_activity_to_avoid):,}")
+    # print(f"Cases without activity_to_avoid: {len(case_ids_without_activity_to_avoid):,}")
+    return case_ids_with_activity_to_avoid, case_ids_without_activity_to_avoid
+
 def variable_type_analysis(X_train, case_id_name, activity_name):
     """ Can be added to class: EventLog (in file 00_preprocess notebook).
     Args:
@@ -190,7 +215,7 @@ def get_test_cases(df, case_id_name, load_dataset=False, path_and_filename=None)
         for idx in df[case_id_name].unique():
             df_trace = df[df[case_id_name] == idx]
             # ceil enables cases with 1 row to pass through
-            cut = ceil(len(df_trace) * random.uniform(0.5, 0.7))  #+ 2  # 2 because one for the floor and one for the pred
+            cut = ceil(len(df_trace) * random.uniform(0.3, 0.8) + 1)  # +1 cuz I want atleast 2 activities in the trace
             df_trace = df_trace.iloc[:cut].reset_index(drop=True)
 
             # df_result = pd.concat([df_result, df_trace])
@@ -249,8 +274,8 @@ def activity_n_resources(df, resources_columns=None, threshold_percentage=100):
 def get_prefix_of_activities(expected_activity_index=None, event_log=None, df_single_trace=None, window_size=3,
                              activity_column_name=None, case_id_name=None):
     """ Retrieves the prefix of activities from the event log. So that later the next activity can be validated using the prefix.
-    This function can be used for 2 different cases. 1st, passing different arguments allowing is to single out trace prefix
-    from the entire event log (df_train). 2nd, passing it df_single_trace and prefix is extracted from it.
+    This function can be used for 2 different cases. 1st, passing it df_single_trace and prefix is extracted from it.
+    2nd, passing different arguments allowing is to single out trace prefix from the entire event log (df_train).
     Args:
         expected_activity_index (int)
         event_log (pd.DataFrame): Dataframe containing many traces. E.g. df_train
@@ -269,6 +294,7 @@ def get_prefix_of_activities(expected_activity_index=None, event_log=None, df_si
         assert df_single_trace.loc[0] is not None
 
         # Due to assumption that last activity is the expected activity so the prefix ends at the 2nd last activity
+        # If this raises an exception it means no activity has occurred.
         index_to_previous_activity = df_single_trace.index[-2]
 
         start_index, end_index = indexs_for_window(index_to_previous_activity, window_size=window_size, end_exclusive=False)

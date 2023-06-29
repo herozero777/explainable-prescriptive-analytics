@@ -90,11 +90,13 @@ if __name__ == '__main__':
     case_id_name = 'SR_Number'  # The case identifier column name.
     start_date_name = 'Change_Date+Time'  # Maybe change to start_et (start even time)
     activity_column_name = "ACTIVITY"
+    resource_column_name = "Involved_ST"
 
     data_dir = "./preprocessed_datasets/"
     train_dataset_file = "vinst_train.csv"
     # test_dataset_file = "vinst_test.csv"
-    test_pickle_dataset_file = "vinst_test.pkl"
+    # test_pickle_dataset_file = "vinst_test.pkl"
+    test_pickle_dataset_file = "vinst_test-500.pkl"
     df = pd.read_csv("./data/VINST cases incidents.csv")  # Use full dataset for transition systens
     df_train = pd.read_csv(os.path.join(data_dir, train_dataset_file))
     # df_test = pd.read_csv(os.path.join(data_dir, test_dataset_file))
@@ -109,7 +111,7 @@ if __name__ == '__main__':
     # Unpickle the Standard test-set. To standardize the test across different parameters.
     test_cases = get_test_cases(None, None, load_dataset=True, path_and_filename=os.path.join(data_dir, test_pickle_dataset_file))
 
-    cols_to_vary = ["ACTIVITY", "Involved_ST_Function_Div", "Involved_Org_line_3", "Involved_ST"]
+    cols_to_vary = [activity_column_name, resource_column_name]
 
     outcome_name = "lead_time"
 
@@ -154,8 +156,7 @@ if __name__ == '__main__':
     explainer = Dice(data_model, ml_backend, method=method)
 
     # === Load activity and resource compatibility thingy
-    resource_columns_to_validate = [activity_column_name, 'Involved_ST_Function_Div', 'Involved_Org_line_3',
-                                    'Involved_ST', 'Country', 'Owner_Country']
+    resource_columns_to_validate = [activity_column_name, resource_column_name, 'Country', 'Owner_Country']
     valid_resources = activity_n_resources(df, resource_columns_to_validate, threshold_percentage=100)
 
     # === Load the Transition Graph

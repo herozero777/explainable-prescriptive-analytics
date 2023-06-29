@@ -59,7 +59,7 @@ if __name__ == '__main__':
                "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
                "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
                "save_load_result_path": RESULTS_FILE_PATH_N_NAME,
-               "train_dataset_size": 171_034,                                   # 171_034
+               "train_dataset_size": 164_927,                                   # 164_927
                "proximity_weight": 0.2,
                "sparsity_weight": 0.2,
                "diversity_weight": 5.0,
@@ -89,12 +89,14 @@ if __name__ == '__main__':
 
     case_id_name = 'REQUEST_ID'  # The case identifier column name.
     activity_column_name = "ACTIVITY"
+    resource_column_name = "CE_UO"
 
     data_dir = "./preprocessed_datasets/"
     train_dataset_file = "bank_acc_train.csv"
     # test_dataset_file = "bank_acc_test.csv"
-    test_pickle_dataset_file = "bank_acc_test.pkl"
-    df = pd.read_csv("./data/completed.csv")  # Use full dataset for transition systens
+    # test_pickle_dataset_file = "bank_acc_test.pkl"
+    test_pickle_dataset_file = "bank_acc_test-500.pkl"
+    df = pd.read_csv("./data/bank_account_closure.csv")  # Use full dataset for transition systens
     df_train = pd.read_csv(os.path.join(data_dir, train_dataset_file))
     # df_test = pd.read_csv(os.path.join(data_dir, test_dataset_file))
 
@@ -108,7 +110,7 @@ if __name__ == '__main__':
     # Unpickle the Standard test-set. To standardize the test across different parameters.
     test_cases = get_test_cases(None, None, load_dataset=True, path_and_filename=os.path.join(data_dir, test_pickle_dataset_file))
 
-    cols_to_vary = ["ACTIVITY", "CE_UO", "ROLE"]
+    cols_to_vary = [activity_column_name, resource_column_name]
 
     outcome_name = "Back-Office Adjustment Requested"
 
@@ -159,7 +161,7 @@ if __name__ == '__main__':
     method = configs["dice_method"]
     explainer = Dice(data_model, ml_backend, method=method)
 
-    resource_columns_to_validate = [activity_column_name, 'CE_UO', 'ROLE']
+    resource_columns_to_validate = [activity_column_name, resource_column_name]
     valid_resources = activity_n_resources(df, resource_columns_to_validate, threshold_percentage=100)
 
     # === Load the Transition Graph
