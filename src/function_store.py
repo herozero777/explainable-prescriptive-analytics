@@ -15,6 +15,8 @@ import pandas as pd
 import pickle
 import os
 import random
+import subprocess
+import joblib
 from math import ceil
 from wrapt_timeout_decorator import timeout
 import warnings
@@ -369,7 +371,7 @@ def validate_transition(cfe, prefix_of_activities=None, transition_graph=None, v
 
 @timeout(300)  # Timeout unit seconds
 def generate_cfe(explainer, query_instances, total_time_upper_bound=None, features_to_vary=None, total_cfs=50, kpi="",
-                 proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0):
+                 proximity_weight=0.0, sparsity_weight=0.0, diversity_weight=0.0, permitted_range=None):
     """ For ref: http://interpret.ml/DiCE/dice_ml.explainer_interfaces.html#dice_ml.explainer_interfaces.explainer_base.ExplainerBase.generate_counterfactuals
     Args:
         explainer (dice_ml.Dice):
@@ -385,17 +387,31 @@ def generate_cfe(explainer, query_instances, total_time_upper_bound=None, featur
     Returns:
         cfe (dice_ml.counterfactual_explanations.CounterfactualExplanations): Dice counterfactual explanations object.
     """
-    if kpi == "activity_occurrence":
+    if isinstance(explainer.model, dice_ml.model_interfaces.pytorch_model.PyTorchModel):
+        # We know kpi is activity_occurrence. This if is a hack agreed.
+        cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_class=0,
+                                                 features_to_vary=features_to_vary,
+                                                 permitted_range = permitted_range)  # 'Back-Office Adjustment Requested'
+    elif kpi == "activity_occurrence":
         # Usually .generate_counterfactuals use desired_class="opposite" but we use 0 because we need to always want the
         # target attribute (label column) to be 0, meaning the bad activity will not occur.
         cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs, desired_class=0,
                                                  features_to_vary=features_to_vary,
-                                                 permitted_range = {"ACTIVITY": ['Service closure Request with network responsibility',
-                                                                                'Service closure Request with BO responsibility',
-                                                                                'Pending Request for Reservation Closure', 'Pending Liquidation Request',
-                                                                                'Request created','Authorization Requested', 'Evaluating Request (NO registered letter)',
-                                                                                'Network Adjustment Requested', 'Evaluating Request (WITH registered letter)',
-                                                                                'Pending Request for Network Information']})  # 'Back-Office Adjustment Requested'
+                                                 permitted_range = {"ACTIVITY": [
+                                                     'Service closure Request with network responsibility',
+                                                     'Service closure Request with BO responsibility',
+                                                     'Pending Request for Reservation Closure',
+                                                     'Pending Liquidation Request',
+                                                     'Request completed with account closure',
+                                                     'Request created',
+                                                     'Authorization Requested',
+                                                     'Evaluating Request (NO registered letter)',
+                                                     'Network Adjustment Requested',
+                                                     'Pending Request for acquittance of heirs',
+                                                     'Request deleted',
+                                                     'Evaluating Request (WITH registered letter)',
+                                                     'Request completed with customer recovery',
+                                                     'Pending Request for Network Information']})  # 'Back-Office Adjustment Requested'
     else:
         cfe = explainer.generate_counterfactuals(query_instances, total_CFs=total_cfs,
                                                  desired_range=[0, total_time_upper_bound],
@@ -404,6 +420,29 @@ def generate_cfe(explainer, query_instances, total_time_upper_bound=None, featur
                                                  diversity_weight=diversity_weight)
     return cfe
 
+
+def download_remote_models(model_file_name = None, return_model=True):
+    """Downloads ML models (can also just download a file) from the remote server"""
+    if model_file_name is None:
+        raise "Please specify the model file name!"
+    if '.' not in model_file_name:
+        raise ValueError("Please specify the file extension as well!")
+
+    if not os.path.exists(f"./ml_models/{model_file_name}"):
+        # Get the file from the remote server
+        result = subprocess.run(['scp',
+                                 f'labnum01:git_repos/explainable-prescriptive-analytics/ml_models/{model_file_name}',
+                                 f'./ml_models/{model_file_name}'], capture_output=True, text=True)
+
+        print("Return code", result.returncode)
+        if result.returncode != 0:
+            raise Exception(f"scp Error! Model name: {model_file_name}")
+
+    if return_model and ".joblib" in model_file_name:
+        # Return the downloaded file
+        return joblib.load(f'./ml_models/{model_file_name}')
+    else:
+        return 0
 
 if __name__ == '__main__':
     # Test save and load functionality

@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # RESULTS_FILE_PATH_N_NAME = "experiment_results/random-t01-total_time.csv"  # Default template name
     RESULTS_FILE_PATH_N_NAME = f"experiment_results/{current_file_name.split('.')[0]}.csv"
     configs = {"kpi": "total_time",                             # "activity_occurrence", "total_time"
-               "window_size": 3,
+               "window_size": 4,
                "reduced_kpi_time": 90,
                "total_cfs": 50,                                  # Number of CFs DiCE algorithm should produce
                "dice_method": extract_algo_name(RESULTS_FILE_PATH_N_NAME),  # genetic, kdtree, random
