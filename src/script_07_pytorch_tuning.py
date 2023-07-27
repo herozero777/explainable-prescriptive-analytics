@@ -74,33 +74,34 @@ def random_lr(log_lower = -3, log_upper = -1):
 
 class ClassificationNN(nn.Module):
     def __init__(self, input_size):
+
         super(ClassificationNN, self).__init__()  # Means: run the __init__ function of the superclass as well, which in this case is nn.Module
         self.layer1 = nn.Linear(input_size, 512)
-        self.bn1 = nn.BatchNorm1d(512)
+        # self.bn1 = nn.BatchNorm1d(512)
         self.layer2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
+        # self.bn2 = nn.BatchNorm1d(256)
         # self.layer3 = nn.Linear(256, 128)
         # self.bn3 = nn.BatchNorm1d(128)
         self.layer4 = nn.Linear(256, 64)
-        self.bn4 = nn.BatchNorm1d(64)
+        # self.bn4 = nn.BatchNorm1d(64)
         self.layer5 = nn.Linear(64, 32)
-        self.bn5 = nn.BatchNorm1d(32)
+        # self.bn5 = nn.BatchNorm1d(32)
         self.layer6 = nn.Linear(32, 16)
-        self.bn6 = nn.BatchNorm1d(16)
+        # self.bn6 = nn.BatchNorm1d(16)
         self.layer7 = nn.Linear(16, 1)
 
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, inference=True):
-        """ Cuz Dice Needs to use the model later and by default it expects the output to be from a sigmoid function"""
-        x = self.layer1(x)
-        x = self.relu( self.bn1(x) )
-        x = self.relu(self.bn2(self.layer2(x)))
-        # x = self.relu(self.bn3(self.layer3(x)))
-        x = self.relu(self.bn4(self.layer4(x)))
-        x = self.relu(self.bn5(self.layer5(x)))
-        x = self.relu(self.bn6(self.layer6(x)))
+        """ inference=True: Cuz Dice Needs to use the model later and by default it expects the output to be from a
+        sigmoid function"""
+        x = self.relu(self.layer1(x))
+        x = self.relu(self.layer2(x))
+        x = self.relu(self.layer3(x))
+        x = self.relu(self.layer4(x))
+        x = self.relu(self.layer5(x))
+        x = self.relu(self.layer6(x))
         x = self.layer7(x)  # no sigmoid here for training
         if inference:
             x = self.sigmoid(x)
